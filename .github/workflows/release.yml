@@ -23,19 +23,16 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: video-optimizer-linux-x86_64
-            binary_path: target/release/video_optimizer_gtk
             asset_output: video-optimizer-linux.tar.gz
 
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: video-optimizer-macos-arm64
-            binary_path: target/release/video_optimizer_gtk
             asset_output: video-optimizer-macos-arm64.tar.gz
 
           - os: windows-latest
             target: x86_64-pc-windows-gnu
             artifact_name: video-optimizer-windows-x64
-            binary_path: target/x86_64-pc-windows-gnu/release/video_optimizer_gtk.exe
             asset_output: video-optimizer-windows-x64.zip
 
     steps:
@@ -75,6 +72,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
+          path-type: inherit
           install: >-
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-gtk4
@@ -89,8 +87,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:$PKG_CONFIG_PATH"
-          export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
+          export PKG_CONFIG_ALLOW_CROSS=1
+          export PKG_CONFIG="/mingw64/bin/pkg-config.exe"
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig"
+          export PATH="/mingw64/bin:/c/Users/runneradmin/.cargo/bin:$PATH"
+          
           cargo build --release --target x86_64-pc-windows-gnu
 
       # ---------------- Packaging Artifacts ----------------
@@ -115,7 +116,7 @@ jobs:
           mkdir -p dist
           cp target/x86_64-pc-windows-gnu/release/video_optimizer_gtk.exe dist/
           
-          # Copy essential GTK runtime DLLs from MinGW so Windows runs portably
+          # Copy runtime DLLs from MinGW so Windows runs portably
           cp /mingw64/bin/libgtk-4-1.dll dist/
           cp /mingw64/bin/libgdk_pixbuf-2.0-0.dll dist/
           cp /mingw64/bin/libgio-2.0-0.dll dist/
@@ -137,11 +138,13 @@ jobs:
           cp /mingw64/bin/libgcc_s_seh-1.dll dist/
           cp /mingw64/bin/libstdc++-6.dll dist/
 
-          # Copy gsettings schemas
+          # Copy GLib settings schemas
           mkdir -p dist/share/glib-2.0/schemas
           cp /mingw64/share/glib-2.0/schemas/gschemas.compiled dist/share/glib-2.0/schemas/ || true
 
-          # Compress to zip
+      - name: Compress Windows Zip
+        if: runner.os == 'Windows'
+        run: |
           powershell Compress-Archive -Path dist/* -DestinationPath ${{ matrix.asset_output }}
 
       - name: Upload Artifact
