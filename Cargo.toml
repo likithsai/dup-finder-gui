@@ -1,0 +1,23 @@
+[package.metadata.bundle]
+name = "Vault Video Optimizer"
+identifier = "com.vault.video_optimizer"
+icon = ["32x32.png", "128x128.png", "128x128@2x.png"]
+version = "0.1.0"
+copyright = "2026 Vault Studio"
+category = "Video"
+short_description = "Hardware-accelerated video batch optimizer"
+long_description = "High-throughput parallel video compressor using hardware acceleration (VideoToolbox, NVENC, QSV)."
+
+[package]
+name = "video_optimizer_gtk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gtk4 = "0.9"
+glib = "0.20"
+gio = "0.20"
+async-channel = "2.3"
+walkdir = "2.5"
+ffmpeg-sidecar = "2.0"
+filetime = "0.2"

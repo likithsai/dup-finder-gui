@@ -1,0 +1,15 @@
+[tasks.build]
+description = "Build static binary"
+command = "cargo"
+args = ["build", "--release"]
+
+[tasks.build-x64]
+description = "Build static x86_64 musl binary"
+command = "cargo"
+args = ["zigbuild", "--release", "--target", "x86_64-unknown-linux-musl"]
+
+[tasks.package-docker]
+description = "Build Docker image"
+dependencies = ["build-x64"]
+command = "docker"
+args = ["build", "-t", "video-optimizer:latest", "."]
