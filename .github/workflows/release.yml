@@ -1,0 +1,175 @@
+name: Cross-Platform Release Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: video-optimizer-linux-x86_64
+            binary_path: target/release/video_optimizer_gtk
+            asset_output: video-optimizer-linux.tar.gz
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: video-optimizer-macos-arm64
+            binary_path: target/release/video_optimizer_gtk
+            asset_output: video-optimizer-macos-arm64.tar.gz
+
+          - os: windows-latest
+            target: x86_64-pc-windows-gnu
+            artifact_name: video-optimizer-windows-x64
+            binary_path: target/x86_64-pc-windows-gnu/release/video_optimizer_gtk.exe
+            asset_output: video-optimizer-windows-x64.zip
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # ---------------- Linux Dependencies ----------------
+      - name: Install Linux Dependencies (GTK4)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-4-dev \
+            build-essential \
+            pkg-config
+
+      # ---------------- macOS Dependencies ----------------
+      - name: Install macOS Dependencies (GTK4)
+        if: runner.os == 'macOS'
+        run: |
+          brew install gtk4 pkg-config
+
+      # ---------------- Windows Dependencies & MSYS2 ----------------
+      - name: Set up MSYS2 for Windows (GTK4 MinGW-w64)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-gtk4
+            mingw-w64-x86_64-pkg-config
+
+      # ---------------- Build Steps ----------------
+      - name: Build Release (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: cargo build --release
+
+      - name: Build Release (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:$PKG_CONFIG_PATH"
+          export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
+          cargo build --release --target x86_64-pc-windows-gnu
+
+      # ---------------- Packaging Artifacts ----------------
+      - name: Package Linux Binary
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p package
+          cp target/release/video_optimizer_gtk package/
+          tar -czvf ${{ matrix.asset_output }} -C package .
+
+      - name: Package macOS Binary
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p package
+          cp target/release/video_optimizer_gtk package/
+          tar -czvf ${{ matrix.asset_output }} -C package .
+
+      - name: Package Windows Binary & Collect DLLs
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist
+          cp target/x86_64-pc-windows-gnu/release/video_optimizer_gtk.exe dist/
+          
+          # Copy essential GTK runtime DLLs from MinGW so Windows runs portably
+          cp /mingw64/bin/libgtk-4-1.dll dist/
+          cp /mingw64/bin/libgdk_pixbuf-2.0-0.dll dist/
+          cp /mingw64/bin/libgio-2.0-0.dll dist/
+          cp /mingw64/bin/libglib-2.0-0.dll dist/
+          cp /mingw64/bin/libgobject-2.0-0.dll dist/
+          cp /mingw64/bin/libpango-1.0-0.dll dist/
+          cp /mingw64/bin/libpangocairo-1.0-0.dll dist/
+          cp /mingw64/bin/libcairo-2.dll dist/
+          cp /mingw64/bin/libgraphene-1.0-0.dll dist/
+          cp /mingw64/bin/libintl-8.dll dist/
+          cp /mingw64/bin/libwinpthread-1.dll dist/
+          cp /mingw64/bin/libepoxy-0.dll dist/
+          cp /mingw64/bin/libharfbuzz-0.dll dist/
+          cp /mingw64/bin/libfontconfig-1.dll dist/
+          cp /mingw64/bin/libfreetype-6.dll dist/
+          cp /mingw64/bin/libfribidi-0.dll dist/
+          cp /mingw64/bin/zlib1.dll dist/
+          cp /mingw64/bin/libpng16-16.dll dist/
+          cp /mingw64/bin/libgcc_s_seh-1.dll dist/
+          cp /mingw64/bin/libstdc++-6.dll dist/
+
+          # Copy gsettings schemas
+          mkdir -p dist/share/glib-2.0/schemas
+          cp /mingw64/share/glib-2.0/schemas/gschemas.compiled dist/share/glib-2.0/schemas/ || true
+
+          # Compress to zip
+          powershell Compress-Archive -Path dist/* -DestinationPath ${{ matrix.asset_output }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.asset_output }}
+          if-no-files-found: error
+
+  # ---------------- Automatic GitHub Release ----------------
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
